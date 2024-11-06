@@ -6,6 +6,8 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\AduanController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\KategoriController;
+use App\Http\Controllers\ChallengeController;
+use App\Http\Controllers\ContactController;
 
 /*
 |--------------------------------------------------------------------------
@@ -40,6 +42,8 @@ Route::middleware('auth:sanctum')->group(function () {
 });
 
 Route::get('aduan/filter', [AduanController::class, 'filterByLocation']);
+Route::post('/contact-us', [ContactController::class, 'sendMessage']);
+Route::get('/leaderboard', [ChallengeController::class, 'leaderboard']);
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('aduan/report/pdf', [ReportController::class, 'generatePdf'])->middleware('admin');

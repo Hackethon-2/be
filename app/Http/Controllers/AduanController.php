@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
 use App\Mail\AduanStatusUpdated;
 use App\Models\Kategori;
+use App\Models\UserPoint;
 
 class AduanController extends Controller
 {
@@ -47,7 +48,7 @@ class AduanController extends Controller
     }
 
     // Get all aduans for authenticated user
-  public function index()
+    public function index()
     {
         $user = Auth::user();
 
@@ -63,37 +64,73 @@ class AduanController extends Controller
     }
 
     // Update aduan status
-    public function update(Request $request, $kek, $Status)
+    public function update(Request $request, $kek, $status)
     {
         // Authenticate user (admin)
         $admin = Auth::user();
 
+        // Check if the authenticated user is an admin
         if (!$admin || $admin->role !== 'admin') {
-            return response()->json(['error' => 'Unauthorized'], 403);
+            return response()->json(['error' => 'Unauthorized access. Only admins can update status.'], 403);
         }
 
-        // Find the aduan by ID
+        // Find the Aduan by ID
         $aduan = Aduan::find($kek);
 
+        // Check if the Aduan exists
         if (!$aduan) {
             return response()->json(['error' => 'Aduan not found'], 404);
         }
 
-        // Get the old status before updating
+        // Get the current status before updating
         $oldStatus = $aduan->status;
 
-        // Update the status
-        $aduan->status = $Status;
-        $aduan->save();
+        // Update the status if it is different from the current status
+        if ($oldStatus !== $status) {
+            $aduan->status = $status;
+            $aduan->save();
 
-        // Send email notification to the user who created the aduan
-        $aduanUser = $aduan->user; // Assuming `user` relationship exists in Aduan model
-        if ($aduanUser && $aduanUser->email) {
-            Mail::to($aduanUser->email)
-                ->send(new AduanStatusUpdated($aduan, $oldStatus, $admin->email, $admin->name)); // Use admin's email
+            // Jika status "Selesai", tambahkan poin untuk user
+            if ($status === 'Selesai') {
+                $this->updatePointsOnAduanCompletion($aduan->id);
+            }
+
+            // Send an email notification to the user who created the Aduan
+            $aduanUser = $aduan->user; // Assuming `user` relationship exists in Aduan model
+            if ($aduanUser && $aduanUser->email) {
+                try {
+                    Mail::to($aduanUser->email)
+                        ->send(new AduanStatusUpdated($aduan, $oldStatus, $admin->email, $admin->name));
+
+                    return response()->json(['message' => 'Aduan status updated successfully, and notification email sent.', 'aduan' => $aduan]);
+                } catch (\Exception $e) {
+                    // Handle email sending error
+                    return response()->json(['message' => 'Aduan status updated, but failed to send email notification.', 'error' => $e->getMessage()], 500);
+                }
+            }
+
+            return response()->json(['message' => 'Aduan status updated successfully.', 'aduan' => $aduan]);
         }
 
-        return response()->json(['message' => 'Aduan status updated successfully', 'aduan' => $aduan]);
+        return response()->json(['message' => 'No changes made. The status is already set to the given value.', 'aduan' => $aduan]);
+    }
+
+    // Fungsi untuk memperbarui poin pengguna jika aduan selesai
+    public function updatePointsOnAduanCompletion($aduanId)
+    {
+        $aduan = Aduan::find($aduanId);
+
+        if ($aduan && $aduan->status === 'Selesai') {
+            // Jika status aduan selesai, beri poin ke user
+            $this->addPointsToUser($aduan->user_id);
+        }
+    }
+
+    // Fungsi untuk menambahkan poin ke user
+    public function addPointsToUser($userId, $points = 10)
+    {
+        $userPoint = UserPoint::firstOrCreate(['user_id' => $userId]);
+        $userPoint->increment('points', $points);
     }
 
     public function filterByLocation(Request $request)
@@ -103,7 +140,7 @@ class AduanController extends Controller
         ]);
 
         $lokasi = $request->lokasi;
-        
+
 
         // Adjust query to handle COUNT and grouping correctly
         $aduans = Aduan::select('aduans.*')
@@ -111,7 +148,7 @@ class AduanController extends Controller
             ->where('lokasi', $lokasi)
             ->orderBy('complaint_count', 'DESC')
             ->get();
-            
+
 
         return response()->json($aduans);
     }
